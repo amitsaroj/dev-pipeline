@@ -7,6 +7,33 @@ Spin up a full agent team and execute the complete pipeline using TeammateTool.
 
 ---
 
+## MODEL ROUTER — Detect Available AI Models (FIRST GATE, RUNS BEFORE EVERYTHING)
+
+Run this as the very first step. It determines what models are available and sets the pipeline strategy.
+
+```javascript
+Task({
+  name: "model-router",
+  subagent_type: "model-router",
+  prompt: `
+    You are the model-router agent.
+    Feature about to be built: $ARGUMENTS
+
+    Detect all available AI models in priority order:
+    Claude → OpenAI → Cursor → Custom endpoint → Ollama
+
+    Report the strategy and whether to continue or stop.
+    If BLOCKED (nothing available), output setup instructions and stop.
+  `
+})
+```
+
+**If BLOCKED:** Present setup instructions and STOP.
+**If OLLAMA_ONLY:** Output the mandatory Ollama warnings, then continue with extra human checkpoint emphasis.
+**If any other strategy:** Continue to PREFLIGHT.
+
+---
+
 ## PREFLIGHT — Environment & Repo Health Check (BLOCKING GATE)
 
 Run this BEFORE creating the team or the branch. If it fails, stop entirely.
@@ -60,6 +87,8 @@ Teammate({
 })
 
 // Create the shared task list
+TaskCreate({ team_name: "dev-pipeline", subject: "MODELS: Detect available models and set strategy", status: "complete", owner: "model-router" })
+TaskCreate({ team_name: "dev-pipeline", subject: "PREFLIGHT: Validate environment and repo health", status: "complete", owner: "preflight" })
 TaskCreate({ team_name: "dev-pipeline", subject: "THINK: Analyze feature and produce plan", status: "pending", owner: "thinker" })
 TaskCreate({ team_name: "dev-pipeline", subject: "RESEARCH: Investigate third-party needs from plan", status: "pending", owner: "researcher", blockedBy: [] })
 TaskCreate({ team_name: "dev-pipeline", subject: "CODE: Implement thinker plan with researcher findings", status: "pending", owner: "coder", blockedBy: ["THINK", "RESEARCH"] })

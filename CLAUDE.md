@@ -10,7 +10,8 @@ Never run planning, coding, auditing, and reviewing in a single session.
 Always spawn a team. Always use parallel execution where tasks are independent.
 
 ### Pipeline Stages (run in this order)
-0. **preflight** — blocking env + repo health check before team is created
+0a. **model-router** — detect available AI models, set strategy (Claude → OpenAI → Cursor → Ollama)
+0b. **preflight** — blocking env + repo health check before team is created
 1. **thinker + researcher** — plan + research in parallel
 2. ⛔ **HUMAN CHECKPOINT** — approve plan before any code is written
 3. **coder** — implements the plan
@@ -45,5 +46,24 @@ Always spawn a team. Always use parallel execution where tasks are independent.
 3. After pipeline completes: review commit message, CHANGELOG, and PR description before pushing
 - Human runs: `git add . && git commit -m "..." && git push && gh pr create ...`
 - Never auto-push
+
+## Model Priority Chain
+
+Agents try models in this order — use the **first available**:
+
+```
+1. Claude (Anthropic)    → ANTHROPIC_API_KEY set
+2. OpenAI / Codex        → OPENAI_API_KEY set
+3. Cursor                → CURSOR_API_KEY or ~/.cursor/config.json
+4. Custom endpoint       → OPENAI_BASE_URL set to non-default URL
+5. Ollama (local, free)  → http://localhost:11434 reachable
+```
+
+Run `bash scripts/check-models.sh` to see what's available on your machine.
+
+**If only Ollama is available:** Use `bash scripts/ollama-pipeline.sh "feature"` instead of `/dev`.
+All generated code must be reviewed by a human before committing in Ollama-only mode.
+
+See `model-config.md` for per-agent model assignments and anti-hallucination rules.
 
 ## Always use swarm orchestration patterns (TeamCreate, Task with team_name, SendMessage, TaskCreate/TaskUpdate) when work is best executed by parallel specialist agents.

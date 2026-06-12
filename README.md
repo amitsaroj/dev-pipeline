@@ -23,6 +23,8 @@ You type one command:
 ```
 /dev <feature>
       │
+   model-router        ← detects Claude/OpenAI/Cursor/Ollama availability (BLOCKING GATE)
+      │
    preflight           ← validates env, repo state, baseline build (BLOCKING GATE)
       │
       ├── thinker ─────────────────────────────────────────┐
@@ -56,10 +58,11 @@ You type one command:
 
 ---
 
-## Agents (14 total)
+## Agents (15 total)
 
 | # | Agent | Role | Stage |
 |---|-------|------|-------|
+| 0 | **model-router** | Detects available AI models (Claude → OpenAI → Cursor → Ollama). Sets pipeline strategy. Warns if only local Ollama is available. | Pre-gate |
 | 1 | **preflight** | Validates git state, Node/npm versions, Docker, services, `.env`, baseline build/tests. Blocks pipeline if broken. | Gate |
 | 2 | **thinker** | Deep architecture plan — affected files, data models, API contracts, task breakdown, risks. Never writes code. | 1 ∥ |
 | 3 | **researcher** | Investigates npm packages, APIs, best practices. Compares options, checks CVEs and licenses. | 1 ∥ |
@@ -200,10 +203,16 @@ To reduce cost: change `model: claude-opus-4-6` → `model: claude-sonnet-4-6` i
 ```
 your-project/
 ├── CLAUDE.md                       ← pipeline config + orchestration rules
+├── model-config.md                 ← model priority chain + anti-hallucination rules
+├── TASKS.md                        ← project task tracker (completed/planned/pending)
+├── scripts/
+│   ├── check-models.sh             ← detect available AI models
+│   └── ollama-pipeline.sh          ← full pipeline for users without Claude access
 └── .claude/
     ├── commands/
     │   └── dev.md                  ← /dev slash command (orchestrator)
     └── agents/
+        ├── model-router.md         ← model detection + strategy gate
         ├── preflight.md            ← env + repo health gate
         ├── thinker.md              ← architecture planning
         ├── researcher.md           ← library + API research
@@ -219,6 +228,57 @@ your-project/
         ├── changelog.md            ← CHANGELOG.md + semver bump
         └── pr-writer.md            ← GitHub PR description
 ```
+
+**∥** = runs in parallel with other agents at the same stage.
+
+---
+
+## Running Without Claude (Ollama Mode)
+
+If you don't have a Claude or OpenAI subscription, the pipeline can run entirely on local models via [Ollama](https://ollama.com).
+
+### Setup
+
+```bash
+# Install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Start the server
+ollama serve
+
+# Pull minimum required models (~9GB total)
+ollama pull llama3.1:8b          # planning, docs, commit writing
+ollama pull codellama:13b        # coding, migration generation
+
+# Or full quality setup (requires 16GB+ VRAM)
+ollama pull deepseek-coder-v2:16b   # better code generation
+ollama pull llama3.1:70b             # better planning/review
+```
+
+### Check what's available
+
+```bash
+bash scripts/check-models.sh
+```
+
+### Run the pipeline
+
+```bash
+bash scripts/ollama-pipeline.sh "Add WhatsApp webhook"
+bash scripts/ollama-pipeline.sh --resume .pipeline-state/2026-06-12T10-30/   # resume after crash
+bash scripts/ollama-pipeline.sh --models    # list available Ollama models
+```
+
+### Important warnings for Ollama-only mode
+
+- **Local models hallucinate.** Review ALL generated code before committing.
+- The plan approval checkpoint is especially critical — reject plans with invented package names.
+- After generation: run `npm run build && npm run test` before accepting any output.
+- If a model names a package you don't recognize: `npm info <package>` to verify it exists.
+- Larger models (70b for planning, 16b+ for coding) reduce hallucination significantly.
+- Quality tier: Tier 3–4 vs Tier 1–2 for Claude. Functional but needs human verification.
+
+See `model-config.md` for full model assignments and all 10 anti-hallucination rules.
 
 ---
 
