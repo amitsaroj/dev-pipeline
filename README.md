@@ -96,6 +96,8 @@ claude
 ```
 /dev <your feature>
         │
+     preflight (blocking gate)
+        │
         ▼
    [PARALLEL]
    thinker + researcher
@@ -108,8 +110,13 @@ claude
       coder
         │
         ▼
-   [PARALLEL × 3]
-   auditor + security-sentinel + db-migrator
+   [PARALLEL × 2]
+   build-validator + docs-writer
+   (fast-fail — back to coder if build fails)
+        │
+        ▼
+   [PARALLEL × 4]
+   auditor + security-sentinel + db-migrator + dependency-auditor
         │
         ▼  (fix loop — max 3 retries, escalate on failure)
       reviewer
@@ -126,19 +133,23 @@ claude
 
 ## Agent Token Budget (rough estimate per run)
 
-| Agent | Tokens | Model |
-|---|---|---|
-| thinker | ~8k | Opus 4.6 |
-| researcher | ~5k | Sonnet 4.6 |
-| coder | ~20k+ | Opus 4.6 |
-| auditor | ~6k | Sonnet 4.6 |
-| security-sentinel | ~6k | Sonnet 4.6 |
-| db-migrator | ~4k | Sonnet 4.6 |
-| reviewer | ~8k | Opus 4.6 |
-| commit-writer | ~2k | Sonnet 4.6 |
-| changelog | ~2k | Sonnet 4.6 |
-| pr-writer | ~3k | Sonnet 4.6 |
-| **Total** | **~64k+** | |
+| Agent | Tokens | Model | Stage |
+|---|---|---|---|
+| preflight | ~2k | Sonnet 4.6 | Gate |
+| thinker | ~8k | Opus 4.6 | 1 |
+| researcher | ~5k | Sonnet 4.6 | 1 |
+| coder | ~20k+ | Opus 4.6 | 2 |
+| build-validator | ~3k | Sonnet 4.6 | 2.5 |
+| docs-writer | ~4k | Sonnet 4.6 | 2.5 |
+| auditor | ~6k | Sonnet 4.6 | 3 |
+| security-sentinel | ~6k | Sonnet 4.6 | 3 |
+| db-migrator | ~4k | Sonnet 4.6 | 3 |
+| dependency-auditor | ~3k | Sonnet 4.6 | 3 |
+| reviewer | ~8k | Opus 4.6 | 4 |
+| commit-writer | ~2k | Sonnet 4.6 | 5 |
+| changelog | ~2k | Sonnet 4.6 | 5 |
+| pr-writer | ~3k | Sonnet 4.6 | 5 |
+| **Total** | **~76k+** | | |
 
 Use Sonnet 4.6 for thinker/reviewer if cost is a concern:
 Change `model: claude-opus-4-6` to `model: claude-sonnet-4-6` in the agent `.md` files.
@@ -179,12 +190,16 @@ your-project/
 ├── CLAUDE.md                          ← project config + orchestration rules
 └── .claude/
     ├── agents/
-    │   ├── thinker.md                 ← planning agent
-    │   ├── researcher.md              ← third-party research agent
+    │   ├── preflight.md               ← env + repo health gate (runs before team creation)
+    │   ├── thinker.md                 ← architecture planning agent
+    │   ├── researcher.md              ← third-party library research agent
     │   ├── coder.md                   ← implementation agent
+    │   ├── build-validator.md         ← TypeScript build + Docker config fast-fail agent
+    │   ├── docs-writer.md             ← Swagger decorators + JSDoc generation agent
     │   ├── auditor.md                 ← code quality + env/docker audit agent
     │   ├── security-sentinel.md       ← security vulnerability audit agent
     │   ├── db-migrator.md             ← database migration generation + safety agent
+    │   ├── dependency-auditor.md      ← npm audit + license compliance agent
     │   ├── reviewer.md                ← final go/no-go agent
     │   ├── commit-writer.md           ← git commit message agent
     │   ├── changelog.md               ← CHANGELOG.md + semver bump agent

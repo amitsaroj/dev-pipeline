@@ -7,6 +7,43 @@ Spin up a full agent team and execute the complete pipeline using TeammateTool.
 
 ---
 
+## PREFLIGHT — Environment & Repo Health Check (BLOCKING GATE)
+
+Run this BEFORE creating the team or the branch. If it fails, stop entirely.
+
+```javascript
+Task({
+  name: "preflight",
+  subagent_type: "preflight",
+  prompt: `
+    You are the preflight agent.
+    Feature about to be built: $ARGUMENTS
+
+    Run all pre-flight checks: git repo state, Node/npm versions,
+    Docker daemon, required services (PostgreSQL, Redis, Qdrant),
+    .env file presence, baseline build, and baseline tests.
+
+    Report OVERALL: READY or BLOCKED.
+  `
+})
+```
+
+**If BLOCKED:** Present all blockers to the human and STOP. Do not create team or branch.
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚨 PREFLIGHT FAILED — PIPELINE CANNOT START
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[paste preflight blockers with fix commands]
+
+Fix the blockers above, then re-run /dev $ARGUMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**If READY:** Continue to Stage 0.
+
+---
+
 ## STAGE 0 — Setup Team + Create Feature Branch
 
 Derive a kebab-case slug from the feature name (e.g. "Add WhatsApp webhook" → `whatsapp-webhook`).
@@ -26,10 +63,13 @@ Teammate({
 TaskCreate({ team_name: "dev-pipeline", subject: "THINK: Analyze feature and produce plan", status: "pending", owner: "thinker" })
 TaskCreate({ team_name: "dev-pipeline", subject: "RESEARCH: Investigate third-party needs from plan", status: "pending", owner: "researcher", blockedBy: [] })
 TaskCreate({ team_name: "dev-pipeline", subject: "CODE: Implement thinker plan with researcher findings", status: "pending", owner: "coder", blockedBy: ["THINK", "RESEARCH"] })
-TaskCreate({ team_name: "dev-pipeline", subject: "AUDIT: Code quality review", status: "pending", owner: "auditor", blockedBy: ["CODE"] })
-TaskCreate({ team_name: "dev-pipeline", subject: "SECURITY: Security vulnerability audit", status: "pending", owner: "security-sentinel", blockedBy: ["CODE"] })
-TaskCreate({ team_name: "dev-pipeline", subject: "DB: Migration generation and validation", status: "pending", owner: "db-migrator", blockedBy: ["CODE"] })
-TaskCreate({ team_name: "dev-pipeline", subject: "REVIEW: Final go/no-go verification", status: "pending", owner: "reviewer", blockedBy: ["AUDIT", "SECURITY", "DB"] })
+TaskCreate({ team_name: "dev-pipeline", subject: "BUILD: TypeScript compilation + Docker config validation", status: "pending", owner: "build-validator", blockedBy: ["CODE"] })
+TaskCreate({ team_name: "dev-pipeline", subject: "DOCS: Add missing Swagger decorators and JSDoc", status: "pending", owner: "docs-writer", blockedBy: ["CODE"] })
+TaskCreate({ team_name: "dev-pipeline", subject: "AUDIT: Code quality review", status: "pending", owner: "auditor", blockedBy: ["BUILD", "DOCS"] })
+TaskCreate({ team_name: "dev-pipeline", subject: "SECURITY: Security vulnerability audit", status: "pending", owner: "security-sentinel", blockedBy: ["BUILD"] })
+TaskCreate({ team_name: "dev-pipeline", subject: "DB: Migration generation and validation", status: "pending", owner: "db-migrator", blockedBy: ["BUILD"] })
+TaskCreate({ team_name: "dev-pipeline", subject: "DEPS: npm audit and license check", status: "pending", owner: "dependency-auditor", blockedBy: ["BUILD"] })
+TaskCreate({ team_name: "dev-pipeline", subject: "REVIEW: Final go/no-go verification", status: "pending", owner: "reviewer", blockedBy: ["AUDIT", "SECURITY", "DB", "DEPS"] })
 TaskCreate({ team_name: "dev-pipeline", subject: "COMMIT: Write structured commit message", status: "pending", owner: "commit-writer", blockedBy: ["REVIEW"] })
 TaskCreate({ team_name: "dev-pipeline", subject: "CHANGELOG: Update CHANGELOG.md and bump version", status: "pending", owner: "changelog", blockedBy: ["REVIEW"] })
 TaskCreate({ team_name: "dev-pipeline", subject: "PR: Write GitHub pull request description", status: "pending", owner: "pr-writer", blockedBy: ["REVIEW"] })
@@ -145,9 +185,77 @@ Task({
 
 ---
 
-## STAGE 3 — Spawn Auditor + Security-Sentinel + DB-Migrator in PARALLEL
+## STAGE 2.5 — Spawn Build-Validator + Docs-Writer in PARALLEL (fast-fail gate)
 
-Send ALL THREE in a single message:
+Send BOTH in a single message immediately after coder reports:
+
+```javascript
+Task({
+  team_name: "dev-pipeline",
+  name: "build-validator",
+  subagent_type: "build-validator",
+  run_in_background: true,
+  prompt: `
+    You are the build-validator agent on team dev-pipeline.
+    Your name is build-validator.
+
+    The coder just finished implementing: $ARGUMENTS
+
+    CODER REPORT:
+    [paste coder's full implementation report]
+
+    Run tsc --noEmit, npm run build, circular dep check, Docker Compose config validation.
+    Send your build report to team-lead inbox when done.
+    Update your task to complete.
+  `
+})
+
+Task({
+  team_name: "dev-pipeline",
+  name: "docs-writer",
+  subagent_type: "docs-writer",
+  run_in_background: true,
+  prompt: `
+    You are the docs-writer agent on team dev-pipeline.
+    Your name is docs-writer.
+
+    FILES CHANGED:
+    [paste file list from coder's implementation report]
+
+    Add missing Swagger decorators (@ApiTags, @ApiOperation, @ApiResponse, @ApiProperty)
+    and JSDoc to any public service methods that are missing them.
+    Update .env.example with descriptions for any new variables.
+    Send your docs report to team-lead inbox when done.
+    Update your task to complete.
+  `
+})
+```
+
+**Wait** for both to send reports.
+
+### If build-validator reports FAIL:
+Send the build errors back to coder immediately — do NOT spawn audit agents yet:
+
+```javascript
+Teammate({
+  operation: "sendMessage",
+  team_name: "dev-pipeline",
+  to: "coder",
+  message: {
+    type: "build_fix_request",
+    build_errors: [/* paste build-validator FAIL items */],
+    instruction: "Fix ALL build errors listed. Run npm run build and tsc --noEmit locally before reporting back."
+  }
+})
+```
+
+Repeat until build-validator reports PASS, then continue to Stage 3.
+
+---
+
+## STAGE 3 — Spawn Auditor + Security-Sentinel + DB-Migrator + Dependency-Auditor in PARALLEL
+
+Only run after build-validator reports PASS. Send ALL FOUR in a single message:
 
 ```javascript
 Task({
@@ -163,6 +271,9 @@ Task({
 
     CODER REPORT:
     [paste coder's full implementation report]
+
+    DOCS REPORT:
+    [paste docs-writer's report]
 
     FILES TO AUDIT:
     [paste file list from coder's implementation report]
@@ -214,9 +325,27 @@ Task({
     Update your task to complete.
   `
 })
+
+Task({
+  team_name: "dev-pipeline",
+  name: "dependency-auditor",
+  subagent_type: "dependency-auditor",
+  run_in_background: true,
+  prompt: `
+    You are the dependency-auditor agent on team dev-pipeline.
+    Your name is dependency-auditor.
+
+    FEATURE REQUIREMENT: $ARGUMENTS
+
+    Run npm audit, check outdated packages, verify license compliance,
+    and flag phantom or duplicate dependencies.
+    Send your dependency audit report to team-lead inbox when done.
+    Update your task to complete.
+  `
+})
 ```
 
-**Wait** for all three to send reports.
+**Wait** for all four to send reports.
 
 ---
 
@@ -228,7 +357,7 @@ fixAttempts = 0
 MAX_FIX_ATTEMPTS = 3
 ```
 
-**While** auditor, security-sentinel, or db-migrator report CRITICAL issues **AND** `fixAttempts < MAX_FIX_ATTEMPTS`:
+**While** auditor, security-sentinel, db-migrator, or dependency-auditor report CRITICAL issues **AND** `fixAttempts < MAX_FIX_ATTEMPTS`:
 
 ```javascript
 fixAttempts++
@@ -242,14 +371,14 @@ Teammate({
     attempt: fixAttempts,
     max_attempts: MAX_FIX_ATTEMPTS,
     critical_issues: [
-      // paste ALL CRITICAL issues from auditor + security-sentinel + db-migrator reports
+      // paste ALL CRITICAL issues from all four audit reports
     ],
     instruction: "Fix ALL critical issues listed. Re-run lint, tests, and e2e tests after fixing. Report back when done."
   }
 })
 ```
 
-After coder reports back, re-run auditor, security-sentinel, and db-migrator on changed files only.
+After coder reports back, re-run auditor, security-sentinel, db-migrator, and dependency-auditor on changed files only.
 Repeat until no CRITICAL issues remain OR `fixAttempts >= MAX_FIX_ATTEMPTS`.
 
 ### If MAX_FIX_ATTEMPTS reached with unresolved CRITICALs — ESCALATE TO HUMAN:
@@ -262,7 +391,7 @@ Repeat until no CRITICAL issues remain OR `fixAttempts >= MAX_FIX_ATTEMPTS`.
 The coder could not resolve all critical issues in 3 attempts.
 
 Unresolved CRITICAL issues:
-[list each with file:line, issue, and what was tried]
+[list each with source agent, file:line, issue, and what was tried]
 
 Your options:
   FIX    — describe a specific approach for the coder to try
@@ -289,6 +418,9 @@ Task({
 
     ORIGINAL FEATURE: $ARGUMENTS
 
+    BUILD REPORT:
+    [paste build-validator report]
+
     AUDITOR REPORT:
     [paste auditor report]
 
@@ -297,6 +429,9 @@ Task({
 
     DB MIGRATION REPORT:
     [paste db-migrator report]
+
+    DEPENDENCY AUDIT REPORT:
+    [paste dependency-auditor report]
 
     Run lint, tests, and build yourself. Verify all CRITICALs are resolved.
     Issue GO or NO-GO. Send decision to team-lead inbox.
@@ -373,6 +508,9 @@ Task({
     DB MIGRATION SUMMARY:
     [paste db-migrator summary section]
 
+    DEPENDENCY AUDIT SUMMARY:
+    [paste dependency-auditor overall status]
+
     Write a complete GitHub pull request description following your format.
     Output only the PR description — nothing else.
   `
@@ -396,9 +534,15 @@ Branch: feat/<slug>
 📋 Files Changed:
 [list from coder report]
 
+🏗️  Build: PASS — [TypeScript: clean, Docker Compose: valid]
+
 🧪 Tests: X unit tests, Y e2e tests — all passing
 
+📄 Docs: [from docs-writer — X decorators added, Y JSDoc entries]
+
 🗄️  DB Migrations: [from db-migrator report — files and safety status]
+
+📦 Dependencies: [from dependency-auditor — X CVEs, license status]
 
 🔍 Audit Summary:
 - Quality: [auditor summary]
@@ -441,6 +585,8 @@ Teammate({ operation: "cleanup", team_name: "dev-pipeline" })
 ```
 Feature Request
       │
+   preflight (blocking gate — stop if FAIL)
+      │
       ├─── thinker ──────────────────────────────────┐
       │                                              ▼
       └─── researcher (pre-research) ──────── MERGE PLANS
@@ -450,17 +596,23 @@ Feature Request
                                                      │
                                                   coder
                                                      │
-                          ┌──────────────────────────┼──────────────┐
-                          ▼                           ▼              ▼
-                       auditor            security-sentinel    db-migrator
-                          └──────────────────────────┴──────────────┘
-                                            │   (fix loop ×3 max)
-                                         reviewer
-                                            │
-                   ┌────────────────────────┼────────────────────┐
-                   ▼                        ▼                     ▼
-            commit-writer             changelog               pr-writer
-                   └────────────────────────┴─────────────────────┘
-                                            │
-                                    HUMAN REVIEW → PUSH
+                                    ┌────────────────┤
+                                    ▼                ▼
+                            build-validator     docs-writer
+                                    │   (fast-fail gate)
+                                    │  if FAIL → back to coder
+                                    │
+          ┌─────────────────────────┼──────────────────────┐
+          ▼                         ▼            ▼          ▼
+       auditor          security-sentinel   db-migrator  dependency-auditor
+          └─────────────────────────┴────────────┴──────────┘
+                                    │   (fix loop ×3 max)
+                                 reviewer
+                                    │
+           ┌────────────────────────┼────────────────────┐
+           ▼                        ▼                     ▼
+    commit-writer             changelog               pr-writer
+           └────────────────────────┴─────────────────────┘
+                                    │
+                            HUMAN REVIEW → PUSH
 ```
