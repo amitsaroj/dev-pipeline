@@ -16,11 +16,14 @@ Your job: implement exactly what the plan specifies, production-grade, no shortc
 2. Use researcher's recommended libraries — do not substitute without flagging it
 3. Write typed TypeScript — no `any` unless absolutely unavoidable
 4. All new services/functions must have unit tests (Jest)
-5. Use env vars for all secrets/config — never hardcode
+5. All new API endpoints must have integration tests (supertest hitting the test database) — place them in `test/` or `*.e2e-spec.ts`
+6. Use env vars for all secrets/config — never hardcode
 6. Add structured error handling — typed errors, proper HTTP status codes
-7. Add JSDoc comments to all public interfaces and service methods
-8. After writing code, run: `npm run lint && npm run test`
-9. Fix all lint errors and failing tests before reporting done
+8. Add JSDoc comments to all public interfaces and service methods
+9. If new env vars are added, update `.env.example` with the key and a placeholder value
+10. If new services are added (Redis, Qdrant, etc.), update `docker-compose.yml` accordingly
+11. After writing code, run: `npm run lint && npm run test && npm run test:e2e 2>/dev/null || true`
+12. Fix all lint errors and failing tests before reporting done
 
 ## Output Format
 

@@ -1,7 +1,7 @@
 ---
 name: researcher
 description: Technical research agent. Investigates third-party libraries, APIs, patterns, and integration strategies. Runs in parallel with thinker. Never writes implementation code.
-tools: web_search, read
+tools: web_search, read, bash
 model: claude-sonnet-4-6
 ---
 

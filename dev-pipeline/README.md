@@ -34,7 +34,8 @@ cp -r dev-pipeline/. /your/project/
 # Verify structure
 ls -la .claude/agents/
 # Should show: thinker.md, researcher.md, coder.md,
-#              auditor.md, security-sentinel.md, reviewer.md, commit-writer.md
+#              auditor.md, security-sentinel.md, db-migrator.md,
+#              reviewer.md, commit-writer.md, changelog.md, pr-writer.md
 ```
 
 ### Option B — Existing Project
@@ -100,17 +101,22 @@ claude
    thinker + researcher
         │
         ▼
+   ⛔ HUMAN CHECKPOINT
+   (approve plan before coding)
+        │
+        ▼
       coder
         │
         ▼
-   [PARALLEL]
-   auditor + security-sentinel
+   [PARALLEL × 3]
+   auditor + security-sentinel + db-migrator
         │
-        ▼  (fix loop if CRITICAL issues)
+        ▼  (fix loop — max 3 retries, escalate on failure)
       reviewer
         │
         ▼
-   commit-writer
+   [PARALLEL × 3]
+   commit-writer + changelog + pr-writer
         │
         ▼
    👤 YOU REVIEW & PUSH
@@ -127,9 +133,12 @@ claude
 | coder | ~20k+ | Opus 4.6 |
 | auditor | ~6k | Sonnet 4.6 |
 | security-sentinel | ~6k | Sonnet 4.6 |
+| db-migrator | ~4k | Sonnet 4.6 |
 | reviewer | ~8k | Opus 4.6 |
 | commit-writer | ~2k | Sonnet 4.6 |
-| **Total** | **~55k+** | |
+| changelog | ~2k | Sonnet 4.6 |
+| pr-writer | ~3k | Sonnet 4.6 |
+| **Total** | **~64k+** | |
 
 Use Sonnet 4.6 for thinker/reviewer if cost is a concern:
 Change `model: claude-opus-4-6` to `model: claude-sonnet-4-6` in the agent `.md` files.
@@ -173,10 +182,13 @@ your-project/
     │   ├── thinker.md                 ← planning agent
     │   ├── researcher.md              ← third-party research agent
     │   ├── coder.md                   ← implementation agent
-    │   ├── auditor.md                 ← code quality audit agent
-    │   ├── security-sentinel.md       ← security audit agent
+    │   ├── auditor.md                 ← code quality + env/docker audit agent
+    │   ├── security-sentinel.md       ← security vulnerability audit agent
+    │   ├── db-migrator.md             ← database migration generation + safety agent
     │   ├── reviewer.md                ← final go/no-go agent
-    │   └── commit-writer.md           ← commit message agent
+    │   ├── commit-writer.md           ← git commit message agent
+    │   ├── changelog.md               ← CHANGELOG.md + semver bump agent
+    │   └── pr-writer.md               ← GitHub PR description agent
     └── commands/
         └── dev.md                     ← /dev slash command (orchestrator)
 ```

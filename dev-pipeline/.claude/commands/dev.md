@@ -7,9 +7,14 @@ Spin up a full agent team and execute the complete pipeline using TeammateTool.
 
 ---
 
-## STAGE 0 — Setup Team
+## STAGE 0 — Setup Team + Create Feature Branch
+
+Derive a kebab-case slug from the feature name (e.g. "Add WhatsApp webhook" → `whatsapp-webhook`).
 
 ```javascript
+// Create feature branch BEFORE any code is written
+Bash(`git checkout -b feat/<kebab-slug>`)
+
 // Create the team
 Teammate({
   operation: "spawnTeam",
@@ -23,8 +28,11 @@ TaskCreate({ team_name: "dev-pipeline", subject: "RESEARCH: Investigate third-pa
 TaskCreate({ team_name: "dev-pipeline", subject: "CODE: Implement thinker plan with researcher findings", status: "pending", owner: "coder", blockedBy: ["THINK", "RESEARCH"] })
 TaskCreate({ team_name: "dev-pipeline", subject: "AUDIT: Code quality review", status: "pending", owner: "auditor", blockedBy: ["CODE"] })
 TaskCreate({ team_name: "dev-pipeline", subject: "SECURITY: Security vulnerability audit", status: "pending", owner: "security-sentinel", blockedBy: ["CODE"] })
-TaskCreate({ team_name: "dev-pipeline", subject: "REVIEW: Final go/no-go verification", status: "pending", owner: "reviewer", blockedBy: ["AUDIT", "SECURITY"] })
+TaskCreate({ team_name: "dev-pipeline", subject: "DB: Migration generation and validation", status: "pending", owner: "db-migrator", blockedBy: ["CODE"] })
+TaskCreate({ team_name: "dev-pipeline", subject: "REVIEW: Final go/no-go verification", status: "pending", owner: "reviewer", blockedBy: ["AUDIT", "SECURITY", "DB"] })
 TaskCreate({ team_name: "dev-pipeline", subject: "COMMIT: Write structured commit message", status: "pending", owner: "commit-writer", blockedBy: ["REVIEW"] })
+TaskCreate({ team_name: "dev-pipeline", subject: "CHANGELOG: Update CHANGELOG.md and bump version", status: "pending", owner: "changelog", blockedBy: ["REVIEW"] })
+TaskCreate({ team_name: "dev-pipeline", subject: "PR: Write GitHub pull request description", status: "pending", owner: "pr-writer", blockedBy: ["REVIEW"] })
 ```
 
 ---
@@ -34,7 +42,6 @@ TaskCreate({ team_name: "dev-pipeline", subject: "COMMIT: Write structured commi
 Send BOTH Task calls in a single message to trigger parallel execution:
 
 ```javascript
-// Thinker and Researcher run simultaneously
 Task({
   team_name: "dev-pipeline",
   name: "thinker",
@@ -79,7 +86,37 @@ After receiving both:
 
 ---
 
-## STAGE 2 — Spawn Coder (after thinker + researcher complete)
+## ⛔ HUMAN CHECKPOINT — Plan Approval (NEVER SKIP)
+
+Present the plan to the human before a single line of code is written:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 PLAN READY — REVIEW BEFORE CODING STARTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Feature: $ARGUMENTS
+Branch: feat/<slug>
+
+📐 THINKER PLAN:
+[paste full thinker output]
+
+🔬 RESEARCHER FINDINGS:
+[paste full researcher output]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+👤 YOUR ACTION:
+  Reply APPROVE to start coding.
+  Or describe any changes you want made to the plan first.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**DO NOT spawn the coder until the human replies APPROVE (or equivalent).**
+If the human requests plan changes, revise accordingly and re-present before proceeding.
+
+---
+
+## STAGE 2 — Spawn Coder (only after human approval)
 
 ```javascript
 Task({
@@ -108,12 +145,11 @@ Task({
 
 ---
 
-## STAGE 3 — Spawn Auditor + Security-Sentinel in PARALLEL
+## STAGE 3 — Spawn Auditor + Security-Sentinel + DB-Migrator in PARALLEL
 
-Send BOTH in a single message:
+Send ALL THREE in a single message:
 
 ```javascript
-// Auditor and Security-Sentinel run simultaneously
 Task({
   team_name: "dev-pipeline",
   name: "auditor",
@@ -125,10 +161,14 @@ Task({
 
     FEATURE REQUIREMENT: $ARGUMENTS
 
+    CODER REPORT:
+    [paste coder's full implementation report]
+
     FILES TO AUDIT:
     [paste file list from coder's implementation report]
 
-    Run lint and tests. Audit for quality, correctness, performance.
+    Run lint, unit tests with coverage, and e2e tests.
+    Audit for quality, correctness, performance, integration test coverage, and Docker/env config completeness.
     Send your audit report to team-lead inbox when done.
     Update your task to complete.
   `
@@ -153,34 +193,85 @@ Task({
     Update your task to complete.
   `
 })
+
+Task({
+  team_name: "dev-pipeline",
+  name: "db-migrator",
+  subagent_type: "db-migrator",
+  run_in_background: true,
+  prompt: `
+    You are the db-migrator agent on team dev-pipeline.
+    Your name is db-migrator.
+
+    FEATURE REQUIREMENT: $ARGUMENTS
+
+    CODER REPORT:
+    [paste coder's full implementation report]
+
+    Review entity/model changes. Generate migration if coder did not.
+    Check reversibility, data safety, and index coverage.
+    Send your migration report to team-lead inbox when done.
+    Update your task to complete.
+  `
+})
 ```
 
-**Wait** for both auditor and security-sentinel to send reports.
+**Wait** for all three to send reports.
 
 ---
 
-## STAGE 4 — Fix Loop (if needed)
+## STAGE 4 — Fix Loop (max 3 retries, then escalate)
 
-If auditor or security-sentinel report CRITICAL issues:
+Initialize counter:
+```
+fixAttempts = 0
+MAX_FIX_ATTEMPTS = 3
+```
+
+**While** auditor, security-sentinel, or db-migrator report CRITICAL issues **AND** `fixAttempts < MAX_FIX_ATTEMPTS`:
 
 ```javascript
-// Send coder back to fix
+fixAttempts++
+
 Teammate({
   operation: "sendMessage",
   team_name: "dev-pipeline",
   to: "coder",
   message: {
     type: "fix_request",
+    attempt: fixAttempts,
+    max_attempts: MAX_FIX_ATTEMPTS,
     critical_issues: [
-      // paste CRITICAL issues from audit + security reports
+      // paste ALL CRITICAL issues from auditor + security-sentinel + db-migrator reports
     ],
-    instruction: "Fix ALL critical issues listed above. Re-run lint and tests after fixing. Report back when done."
+    instruction: "Fix ALL critical issues listed. Re-run lint, tests, and e2e tests after fixing. Report back when done."
   }
 })
 ```
 
-After coder fixes, re-run auditor and security-sentinel on changed files only.
-Repeat until no CRITICAL issues remain.
+After coder reports back, re-run auditor, security-sentinel, and db-migrator on changed files only.
+Repeat until no CRITICAL issues remain OR `fixAttempts >= MAX_FIX_ATTEMPTS`.
+
+### If MAX_FIX_ATTEMPTS reached with unresolved CRITICALs — ESCALATE TO HUMAN:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚨 PIPELINE BLOCKED — 3 FIX ATTEMPTS FAILED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The coder could not resolve all critical issues in 3 attempts.
+
+Unresolved CRITICAL issues:
+[list each with file:line, issue, and what was tried]
+
+Your options:
+  FIX    — describe a specific approach for the coder to try
+  SKIP <issue-id> — accept the risk and bypass a specific issue
+  ABORT  — stop the pipeline (branch stays as-is for manual work)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**STOP and wait for human response before proceeding.**
 
 ---
 
@@ -204,6 +295,9 @@ Task({
     SECURITY REPORT:
     [paste security-sentinel report]
 
+    DB MIGRATION REPORT:
+    [paste db-migrator report]
+
     Run lint, tests, and build yourself. Verify all CRITICALs are resolved.
     Issue GO or NO-GO. Send decision to team-lead inbox.
     Update your task to complete.
@@ -212,34 +306,84 @@ Task({
 ```
 
 **Wait** for reviewer decision.
-
-If NO-GO: repeat Stage 4 fix loop, then re-spawn reviewer.
+If NO-GO: repeat Stage 4 fix loop (counter resets), then re-spawn reviewer.
 
 ---
 
-## STAGE 6 — Commit Message (only after GO)
+## STAGE 6 — Post-GO: Commit Message + Changelog + PR Description in PARALLEL
+
+Only run after reviewer issues GO. Send ALL THREE in a single message:
 
 ```javascript
 Task({
   team_name: "dev-pipeline",
   name: "commit-writer",
   subagent_type: "commit-writer",
+  run_in_background: true,
   prompt: `
     You are the commit-writer agent on team dev-pipeline.
     The reviewer has issued a GO signal.
 
-    Run git diff --staged, git diff --staged --stat, git log --oneline -5.
+    Run: git status, git diff --stat, git diff, git ls-files --others --exclude-standard, git log --oneline -5
+    Note: files are NOT yet staged — use git diff, not git diff --staged.
     Write a complete structured commit message following your format.
     Output the commit message only — nothing else.
   `
 })
+
+Task({
+  team_name: "dev-pipeline",
+  name: "changelog",
+  subagent_type: "changelog",
+  run_in_background: true,
+  prompt: `
+    You are the changelog agent on team dev-pipeline.
+    The reviewer has issued a GO signal.
+
+    Feature implemented: $ARGUMENTS
+
+    Read CHANGELOG.md (or create if missing), read current package.json version,
+    and read git log --oneline -10 for context.
+    Determine the semver bump level. Update CHANGELOG.md and package.json version.
+    Report back when done.
+  `
+})
+
+Task({
+  team_name: "dev-pipeline",
+  name: "pr-writer",
+  subagent_type: "pr-writer",
+  run_in_background: true,
+  prompt: `
+    You are the pr-writer agent on team dev-pipeline.
+    The reviewer has issued a GO signal.
+
+    FEATURE: $ARGUMENTS
+    BRANCH: feat/<slug>
+
+    CODER REPORT:
+    [paste coder's implementation report]
+
+    AUDITOR SUMMARY:
+    [paste auditor summary section]
+
+    SECURITY SUMMARY:
+    [paste security-sentinel summary section]
+
+    DB MIGRATION SUMMARY:
+    [paste db-migrator summary section]
+
+    Write a complete GitHub pull request description following your format.
+    Output only the PR description — nothing else.
+  `
+})
 ```
+
+**Wait** for all three to complete.
 
 ---
 
 ## STAGE 7 — Present to Human
-
-Collect all outputs and present:
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -247,15 +391,18 @@ Collect all outputs and present:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Feature: $ARGUMENTS
+Branch: feat/<slug>
 
 📋 Files Changed:
 [list from coder report]
 
-🧪 Tests: X passing, Y new test files
+🧪 Tests: X unit tests, Y e2e tests — all passing
+
+🗄️  DB Migrations: [from db-migrator report — files and safety status]
 
 🔍 Audit Summary:
 - Quality: [auditor summary]
-- Security: [security summary]
+- Security: [security-sentinel summary]
 
 ✅ Reviewer: GO
 
@@ -264,12 +411,19 @@ Feature: $ARGUMENTS
 [paste commit message]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-👤 YOUR ACTION:
-Review the commit message above, then run:
+📋 CHANGELOG: [version bump — e.g. 1.2.0 → 1.3.0 (minor)]
+
+📄 PR DESCRIPTION:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[paste pr description]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+👤 YOUR ACTION — review the above, then run:
 
   git add .
-  git commit -m "feat(scope): your summary"
-  git push
+  git commit -m "<first line of commit message>"
+  git push -u origin feat/<slug>
+  gh pr create --title "<pr title>" --body "<pr description>"
 ```
 
 ---
@@ -291,16 +445,22 @@ Feature Request
       │                                              ▼
       └─── researcher (pre-research) ──────── MERGE PLANS
                                                      │
+                                          ⛔ HUMAN CHECKPOINT
+                                            (approve plan)
+                                                     │
                                                   coder
                                                      │
-                              ┌──────────────────────┤
-                              ▼                      ▼
-                           auditor         security-sentinel
-                              └──────────────────────┘
-                                           │
-                                        reviewer
-                                           │
-                                    commit-writer
-                                           │
+                          ┌──────────────────────────┼──────────────┐
+                          ▼                           ▼              ▼
+                       auditor            security-sentinel    db-migrator
+                          └──────────────────────────┴──────────────┘
+                                            │   (fix loop ×3 max)
+                                         reviewer
+                                            │
+                   ┌────────────────────────┼────────────────────┐
+                   ▼                        ▼                     ▼
+            commit-writer             changelog               pr-writer
+                   └────────────────────────┴─────────────────────┘
+                                            │
                                     HUMAN REVIEW → PUSH
 ```

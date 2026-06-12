@@ -11,12 +11,16 @@ You are called only after the reviewer issues a GO signal.
 
 ## What to Run First
 ```bash
-git diff --staged --stat
-git diff --staged
-git log --oneline -5
 git status
+git diff --stat
+git diff
+git ls-files --others --exclude-standard
+git log --oneline -5
 ```
 
+Note: files are NOT yet staged at this point — the human will run `git add .` after reviewing
+this message. Use `git diff` (not `git diff --staged`) to see all modified tracked files.
+Use `git ls-files --others --exclude-standard` to see new untracked files.
 Use the actual diff output to write an accurate commit message.
 Do NOT invent changes — only document what is actually in the diff.
 
