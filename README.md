@@ -23,9 +23,14 @@ You type one command:
 ```
 /dev <feature>
       │
+   briefing            ← asks you: scope, constraints, acceptance criteria → FEATURE_BRIEF.md
+      │
    model-router        ← detects Claude/OpenAI/Cursor/Ollama availability (BLOCKING GATE)
       │
    preflight           ← validates env, repo state, baseline build (BLOCKING GATE)
+      │
+   watchdog ───────────────────────────────────────────── (background, every 10 min)
+      │
       │
       ├── thinker ─────────────────────────────────────────┐
       │                                                     ▼
@@ -58,11 +63,13 @@ You type one command:
 
 ---
 
-## Agents (15 total)
+## Agents (17 total)
 
 | # | Agent | Role | Stage |
 |---|-------|------|-------|
-| 0 | **model-router** | Detects available AI models (Claude → OpenAI → Cursor → Ollama). Sets pipeline strategy. Warns if only local Ollama is available. | Pre-gate |
+| — | **briefing** | Asks user targeted questions (scope, constraints, acceptance criteria, timeline) and saves a `FEATURE_BRIEF.md` before anything starts. All downstream agents read this brief. | Pre-pipeline |
+| — | **watchdog** | Background health monitor. Checks all agent task statuses every N minutes (default 10). Pings stuck agents. Escalates to human after 3 unanswered pings. Runs the whole pipeline. | Background |
+| — | **model-router** | Detects available AI models (Claude → OpenAI → Cursor → Ollama). Sets pipeline strategy. Warns if only local Ollama is available. | Pre-gate |
 | 1 | **preflight** | Validates git state, Node/npm versions, Docker, services, `.env`, baseline build/tests. Blocks pipeline if broken. | Gate |
 | 2 | **thinker** | Deep architecture plan — affected files, data models, API contracts, task breakdown, risks. Never writes code. | 1 ∥ |
 | 3 | **researcher** | Investigates npm packages, APIs, best practices. Compares options, checks CVEs and licenses. | 1 ∥ |
@@ -207,11 +214,14 @@ your-project/
 ├── TASKS.md                        ← project task tracker (completed/planned/pending)
 ├── scripts/
 │   ├── check-models.sh             ← detect available AI models
-│   └── ollama-pipeline.sh          ← full pipeline for users without Claude access
+│   ├── ollama-pipeline.sh          ← full pipeline for users without Claude access
+│   └── watchdog.sh                 ← standalone background health monitor
 └── .claude/
     ├── commands/
     │   └── dev.md                  ← /dev slash command (orchestrator)
     └── agents/
+        ├── briefing.md             ← pre-pipeline requirements gathering
+        ├── watchdog.md             ← background health monitor (entire pipeline)
         ├── model-router.md         ← model detection + strategy gate
         ├── preflight.md            ← env + repo health gate
         ├── thinker.md              ← architecture planning
@@ -230,6 +240,54 @@ your-project/
 ```
 
 **∥** = runs in parallel with other agents at the same stage.
+
+---
+
+## Briefing Agent — Never Build the Wrong Thing
+
+The **briefing agent** runs before any planning starts. It asks you 7 targeted questions in a single message:
+
+1. **Scope** — what's MVP vs. optional
+2. **Acceptance criteria** — how you'll know it's done
+3. **Constraints** — things the team must not change, must use, or must avoid
+4. **Edge cases** — failure scenarios you're worried about
+5. **Integrations** — existing modules or services this touches
+6. **Data** — any new DB tables/columns needed
+7. **Timeline** — deadline or urgency
+
+Your answers get saved to `FEATURE_BRIEF.md` and passed to every downstream agent — the thinker, coder, reviewer, and PR writer all read it. This alone eliminates most mid-sprint "wait, that's not what I meant" surprises.
+
+If the feature is clear enough, just reply **GO** and the team will document their assumptions.
+
+---
+
+## Watchdog — No More Silent Failures
+
+The **watchdog agent** runs in the background for the entire pipeline. You never need to interact with it — it watches everything automatically.
+
+**What it does every 10 minutes (configurable):**
+- Reads task status files for every active agent
+- Calculates time since last update per agent
+- If an agent has been silent for more than 15 minutes: sends a ping
+- After 3 unanswered pings: writes to `HUMAN_ATTENTION_REQUIRED.md` and alerts your terminal
+- If an agent status flips to `failed`: escalates immediately (no pings)
+
+**Configure the interval:**
+```bash
+# Check every 5 minutes, escalate after 10 minutes of silence
+WATCHDOG_INTERVAL=300 WATCHDOG_STUCK_THRESHOLD=600 /dev "Add feature"
+
+# Use the standalone watchdog script for Ollama pipeline runs
+bash scripts/watchdog.sh --interval 300 &
+bash scripts/ollama-pipeline.sh "Add feature"
+```
+
+**Monitor a running pipeline:**
+```bash
+bash scripts/watchdog.sh --status          # one-time snapshot
+bash scripts/watchdog.sh --stop            # stop background watchdog
+tail -f .pipeline-state/current/watchdog.log   # live log stream
+```
 
 ---
 

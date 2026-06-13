@@ -7,6 +7,31 @@ Spin up a full agent team and execute the complete pipeline using TeammateTool.
 
 ---
 
+## BRIEFING — Understand the Task (RUNS FIRST, ALWAYS)
+
+Before a single model is queried, ensure the feature request is fully understood.
+
+```javascript
+Task({
+  name: "briefing",
+  subagent_type: "briefing",
+  prompt: `
+    You are the briefing agent. The user wants to build: $ARGUMENTS
+
+    Read CLAUDE.md and package.json first.
+    Then ask the user targeted clarifying questions about scope, constraints,
+    acceptance criteria, timeline, and edge cases — all in ONE message.
+    Save the final FEATURE BRIEF to FEATURE_BRIEF.md.
+    Report back when the brief is saved.
+  `
+})
+```
+
+**Wait** for the brief to be saved before continuing.
+**If the user says GO** without answering: proceed with reasonable assumptions documented in the brief.
+
+---
+
 ## MODEL ROUTER — Detect Available AI Models (FIRST GATE, RUNS BEFORE EVERYTHING)
 
 Run this as the very first step. It determines what models are available and sets the pipeline strategy.
@@ -79,6 +104,24 @@ Derive a kebab-case slug from the feature name (e.g. "Add WhatsApp webhook" → 
 // Create feature branch BEFORE any code is written
 Bash(`git checkout -b feat/<kebab-slug>`)
 
+// Create pipeline state directory and start watchdog in background
+Bash(`mkdir -p .pipeline-state/current && echo "" > .pipeline-state/current/watchdog.log`)
+
+// Start watchdog — runs silently in background for the entire pipeline duration
+Task({
+  team_name: "dev-pipeline",
+  name: "watchdog",
+  subagent_type: "watchdog",
+  run_in_background: true,
+  prompt: `
+    You are the watchdog agent on team dev-pipeline.
+    Monitor all agents throughout this pipeline run.
+    WATCHDOG_INTERVAL: ${process.env.WATCHDOG_INTERVAL || 600} seconds.
+    Pipeline state dir: .pipeline-state/current/
+    Start monitoring immediately and run until you see .pipeline-state/current/pipeline.done
+  `
+})
+
 // Create the team
 Teammate({
   operation: "spawnTeam",
@@ -87,6 +130,7 @@ Teammate({
 })
 
 // Create the shared task list
+TaskCreate({ team_name: "dev-pipeline", subject: "BRIEF: Gather requirements and acceptance criteria", status: "complete", owner: "briefing" })
 TaskCreate({ team_name: "dev-pipeline", subject: "MODELS: Detect available models and set strategy", status: "complete", owner: "model-router" })
 TaskCreate({ team_name: "dev-pipeline", subject: "PREFLIGHT: Validate environment and repo health", status: "complete", owner: "preflight" })
 TaskCreate({ team_name: "dev-pipeline", subject: "THINK: Analyze feature and produce plan", status: "pending", owner: "thinker" })
@@ -604,6 +648,9 @@ Branch: feat/<slug>
 ## STAGE 8 — Cleanup Team
 
 ```javascript
+// Signal watchdog to shut down
+Bash(`echo "done" > .pipeline-state/current/pipeline.done`)
+
 Teammate({ operation: "cleanup", team_name: "dev-pipeline" })
 ```
 
@@ -614,7 +661,13 @@ Teammate({ operation: "cleanup", team_name: "dev-pipeline" })
 ```
 Feature Request
       │
+   briefing (ask user: scope, constraints, acceptance criteria → FEATURE_BRIEF.md)
+      │
+   model-router (detect Claude/OpenAI/Cursor/Ollama → set strategy)
+      │
    preflight (blocking gate — stop if FAIL)
+      │
+   watchdog spawned in background ──────────────────────────────────── (monitors all agents every N min)
       │
       ├─── thinker ──────────────────────────────────┐
       │                                              ▼

@@ -10,8 +10,10 @@ Never run planning, coding, auditing, and reviewing in a single session.
 Always spawn a team. Always use parallel execution where tasks are independent.
 
 ### Pipeline Stages (run in this order)
-0a. **model-router** — detect available AI models, set strategy (Claude → OpenAI → Cursor → Ollama)
-0b. **preflight** — blocking env + repo health check before team is created
+0a. **briefing** — ask user for scope, constraints, acceptance criteria, timeline → FEATURE_BRIEF.md
+0b. **model-router** — detect available AI models, set strategy (Claude → OpenAI → Cursor → Ollama)
+0c. **preflight** — blocking env + repo health check before team is created
+0d. **watchdog** — spawned in background at Stage 0; monitors all agents every N minutes (default 10)
 1. **thinker + researcher** — plan + research in parallel
 2. ⛔ **HUMAN CHECKPOINT** — approve plan before any code is written
 3. **coder** — implements the plan
@@ -23,6 +25,8 @@ Always spawn a team. Always use parallel execution where tasks are independent.
 9. ⛔ **HUMAN REVIEW** — human pushes manually
 
 ### Coordination Rules
+- Briefing runs first — all other stages receive FEATURE_BRIEF.md
+- Watchdog runs in background for entire pipeline duration, checks every $WATCHDOG_INTERVAL seconds (default 600)
 - Thinker and researcher run **in parallel**
 - build-validator and docs-writer run **in parallel** after coder
 - Auditor, security-sentinel, db-migrator, and dependency-auditor run **in parallel** — only after build passes

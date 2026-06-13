@@ -4,9 +4,9 @@ This file is the persistent memory of the dev-pipeline project.
 Every future agent and contributor should read this first to understand what exists,
 what is in progress, and what still needs to be built.
 
-**Last updated:** 2026-06-12
-**Total agents:** 15 (14 pipeline agents + 1 model-router)
-**Pipeline version:** 2.0.0
+**Last updated:** 2026-06-13
+**Total agents:** 17 (14 pipeline agents + model-router + briefing + watchdog)
+**Pipeline version:** 2.1.0
 
 ---
 
@@ -28,6 +28,8 @@ what is in progress, and what still needs to be built.
 - [x] **pr-writer** — full GitHub PR description: summary, test plan, deploy notes, API examples
 - [x] **preflight** — env health gate: git state, Node/npm, Docker, services, `.env`, baseline build/tests
 - [x] **model-router** — detects available models (Claude → OpenAI → Cursor → Ollama), sets pipeline strategy
+- [x] **briefing** — pre-pipeline requirements gathering: asks scope/constraints/acceptance criteria, saves FEATURE_BRIEF.md
+- [x] **watchdog** — background health monitor; checks all agents every N minutes, pings stuck agents, escalates after 3 pings
 
 ### Orchestrator
 - [x] **`/dev` command** (`commands/dev.md`) — full 8-stage orchestrator with human checkpoints, fix loop (max 3 retries), parallel execution map
@@ -37,6 +39,7 @@ what is in progress, and what still needs to be built.
 - [x] **`model-config.md`** — model priority chain, Ollama setup, anti-hallucination rules
 - [x] **`scripts/check-models.sh`** — detects and reports available AI models
 - [x] **`scripts/ollama-pipeline.sh`** — complete standalone pipeline for users without Claude access
+- [x] **`scripts/watchdog.sh`** — standalone background health monitor with --status, --stop, --interval flags
 
 ### Critical Gaps Fixed (v1 → v2)
 - [x] commit-writer was reading `git diff --staged` (empty before `git add`) → fixed to `git diff`
@@ -56,6 +59,8 @@ what is in progress, and what still needs to be built.
 - [x] no repo health check before starting → added preflight
 - [x] duplicate nested folder structure → flattened to root `.claude/`
 - [x] no model fallback for users without Claude access → added model-router + Ollama pipeline
+- [x] no requirements gathering before coding → added briefing agent (saves FEATURE_BRIEF.md)
+- [x] no visibility into stuck/failed agents during long runs → added watchdog (background, configurable interval)
 
 ---
 
@@ -126,8 +131,10 @@ These were considered and explicitly rejected:
 
 | Delivery Phase | Agent(s) | Coverage |
 |---|---|---|
+| Requirements gathering | briefing | ✅ Full |
 | Env validation | preflight | ✅ Full |
 | Model selection | model-router | ✅ Full |
+| Agent health monitoring | watchdog | ✅ Full |
 | Architecture planning | thinker | ✅ Full |
 | Library research | researcher | ✅ Full |
 | Implementation | coder | ✅ Full |
@@ -154,7 +161,10 @@ These were considered and explicitly rejected:
 ## 🔖 Agent Quick Reference
 
 ```
-preflight        → Gate     → model-router → Stage 0 (team + branch)
+briefing         → Pre-pipeline (ask user: scope/constraints/acceptance criteria)
+model-router     → Pre-gate   (detect Claude/OpenAI/Cursor/Ollama)
+preflight        → Gate       (env + repo health check)
+watchdog         → Background (entire pipeline — checks every N minutes)
 thinker          → Stage 1  ∥ researcher
 researcher       → Stage 1  ∥ thinker
 coder            → Stage 2  (after human approves plan)
